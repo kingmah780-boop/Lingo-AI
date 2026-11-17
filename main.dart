@@ -1,6 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
-void main() => runApp(const LingoApp());
+final FlutterLocalNotificationsPlugin alarmNotifications = FlutterLocalNotificationsPlugin();
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  tzdata.initializeTimeZones();
+  try {
+    final localZone = await FlutterTimezone.getLocalTimezone();
+    tz.setLocalLocation(tz.getLocation(localZone.name));
+  } catch (_) {
+    // Keep timezone package's default if the device timezone cannot be read.
+  }
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  await alarmNotifications.initialize(
+    const InitializationSettings(android: androidSettings),
+  );
+  runApp(const LingoApp());
+}
 
 const learningLanguages = [
   'English', 'German', 'French', 'Spanish', 'Italian', 'Japanese',
@@ -160,6 +180,7 @@ class _MainShellState extends State<MainShell> {
       ProfilePage(fa: fa, language: widget.targetLanguage,
         onLanguageChanged: widget.onLanguageChanged,
         onUiLanguageChanged: widget.onUiLanguageChanged),
+      AlarmPage(fa: fa),
     ];
     return Scaffold(
       body: SafeArea(child: pages[tab]),
@@ -174,6 +195,8 @@ class _MainShellState extends State<MainShell> {
             label: fa ? 'پیشرفت' : 'Progress'),
           NavigationDestination(icon: const Icon(Icons.person_outline), selectedIcon: const Icon(Icons.person),
             label: fa ? 'پروفایل' : 'Profile'),
+          NavigationDestination(icon: const Icon(Icons.alarm_outlined), selectedIcon: const Icon(Icons.alarm),
+            label: fa ? 'آلارم' : 'Alarm'),
         ]),
     );
   }
@@ -336,6 +359,170 @@ class LearnPage extends StatelessWidget {
       : 'Sample lesson content is currently in English; localized courses for more languages are planned.',
       style: const TextStyle(color: Color(0xFF667085), fontSize: 12)),
   ]);
+}
+
+
+class AlarmPage extends StatefulWidget {
+  final bool fa;
+  const AlarmPage({super.key, required this.fa});
+  @override
+  State<AlarmPage> createState() => _AlarmPageState();
+}
+
+class _AlarmPageState extends State<AlarmPage> {
+  TimeOfDay selectedTime = const TimeOfDay(hour: 19, minute: 0);
+  bool enabled = false;
+  bool repeatDaily = true;
+  bool busy = false;
+
+  Future<bool> _requestPermission() async {
+    final android = alarmNotifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final granted = await android?.requestNotificationsPermission();
+    return granted ?? true;
+  }
+
+  Future<void> chooseTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: selectedTime,
+      helpText: widget.fa ? 'زمان یادآوری مطالعه' : 'Study reminder time',
+    );
+    if (picked != null) {
+      setState(() => selectedTime = picked);
+      if (enabled) await _scheduleAlarm();
+    }
+  }
+
+  Future<void> _scheduleAlarm() async {
+    setState(() => busy = true);
+    try {
+      final permission = await _requestPermission();
+      if (!permission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+            widget.fa ? 'اجازه اعلان داده نشد؛ از تنظیمات گوشی فعالش کن.'
+              : 'Notification permission was denied. Enable it in phone settings.')));
+          setState(() { enabled = false; busy = false; });
+        }
+        return;
+      }
+
+      final now = tz.TZDateTime.now(tz.local);
+      var scheduled = tz.TZDateTime(tz.local, now.year, now.month, now.day,
+          selectedTime.hour, selectedTime.minute);
+      if (!scheduled.isAfter(now)) scheduled = scheduled.add(const Duration(days: 1));
+
+      const details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'lingo_study_alarm', 'Lingo study reminders',
+          channelDescription: 'Reminders to practise languages in Lingo AI',
+          importance: Importance.max,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        ),
+      );
+      await alarmNotifications.cancel(1001);
+      await alarmNotifications.zonedSchedule(
+        1001,
+        widget.fa ? 'زمان تمرین زبان است!' : 'Time for language practice!',
+        widget.fa ? 'چند دقیقه برای یادگیری زبان وقت بگذار.'
+          : 'Spend a few minutes practising your language.',
+        scheduled,
+        details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        matchDateTimeComponents: repeatDaily ? DateTimeComponents.time : null,
+      );
+      if (mounted) {
+        setState(() { enabled = true; busy = false; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          widget.fa ? 'یادآوری با موفقیت تنظیم شد.' : 'Reminder scheduled successfully.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() { enabled = false; busy = false; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          widget.fa ? 'تنظیم آلارم ناموفق بود: $e' : 'Could not schedule reminder: $e')));
+      }
+    }
+  }
+
+  Future<void> _cancelAlarm() async {
+    await alarmNotifications.cancel(1001);
+    if (mounted) setState(() => enabled = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fa = widget.fa;
+    final timeText = selectedTime.format(context);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(fa ? 'آلارم مطالعه' : 'Study alarm',
+          style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        Text(fa ? 'برای یادگیری زبان، یک زمان مشخص برای خودت انتخاب کن.'
+          : 'Choose a regular time for your language practice.',
+          style: const TextStyle(color: Color(0xFF667085), fontSize: 14)),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF175CD3), Color(0xFF6941C6)]),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Column(children: [
+            const Icon(Icons.alarm_rounded, color: Colors.white, size: 48),
+            const SizedBox(height: 12),
+            Text(timeText, style: const TextStyle(
+              color: Colors.white, fontSize: 42, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            Text(fa ? 'زمان یادآوری' : 'Reminder time',
+              style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 16),
+            FilledButton.tonal(onPressed: busy ? null : chooseTime,
+              child: Text(fa ? 'تغییر ساعت' : 'Change time')),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Card(child: SwitchListTile(
+          value: enabled,
+          onChanged: busy ? null : (v) async {
+            if (v) { await _scheduleAlarm(); } else { await _cancelAlarm(); }
+          },
+          secondary: const Icon(Icons.notifications_active_outlined),
+          title: Text(fa ? 'فعال‌کردن یادآوری' : 'Enable reminder'),
+          subtitle: Text(busy ? (fa ? 'در حال تنظیم...' : 'Scheduling...')
+            : (enabled ? (fa ? 'یادآوری فعال است' : 'Reminder is active')
+              : (fa ? 'یادآوری خاموش است' : 'Reminder is off'))),
+        )),
+        Card(child: SwitchListTile(
+          value: repeatDaily,
+          onChanged: busy ? null : (v) async {
+            setState(() => repeatDaily = v);
+            if (enabled) await _scheduleAlarm();
+          },
+          secondary: const Icon(Icons.repeat_rounded),
+          title: Text(fa ? 'تکرار روزانه' : 'Repeat daily'),
+        )),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(14)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.info_outline, color: Color(0xFF175CD3)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(fa
+              ? 'اعلان در ساعت انتخاب‌شده نمایش داده می‌شود؛ برای نمایش اعلان باید اجازه اعلان‌ها را به برنامه بدهی. در بعضی گوشی‌ها محدودیت باتری ممکن است زمان اعلان را کمی جابه‌جا کند.'
+              : 'A notification will appear at the selected time. Allow notifications for this app. Battery restrictions on some phones may delay it slightly.',
+              style: const TextStyle(color: Color(0xFF344054), fontSize: 12))),
+          ]),
+        ),
+      ],
+    );
+  }
 }
 
 class LessonScreen extends StatefulWidget {

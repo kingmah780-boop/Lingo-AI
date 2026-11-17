@@ -1,33 +1,41 @@
-# Lingo AI v0.2 — The King Studio
+# Lingo AI – The King Studio (v0.3)
 
-## Implemented in this starter
-- Persian / English interface choice
-- Selectable learning language (18 options)
-- Home, Learn, Progress, Profile tabs
-- Four sample lesson units with vocabulary, meanings, examples and next-step flow
-- Lesson completion awards points and updates in-app progress
-- Premium teaser area
+Flutter language-learning app with a working local study-reminder notification implementation.
 
-## Run
-1. Install Flutter SDK and Android Studio.
-2. Extract this ZIP.
-3. If Android/iOS platform folders are absent, run `flutter create .` from this folder.
-4. Run `flutter pub get`.
-5. Run `flutter run` with an emulator or Android device connected.
+## Alarm / study reminder
+- Choose a reminder time.
+- Turn the reminder on or off.
+- Choose one-time (next occurrence) or daily repeat.
+- Android notification permission is requested when enabling the reminder.
+- The reminder is scheduled locally on the device and does not require an internet connection.
+- Uses an inexact Android schedule so Android battery/doze policies may delay delivery slightly.
 
-## Important limitations
-This is a functional UI prototype, not a production release:
-- The sample lesson content is currently English-focused, even if another target language is selected.
-- Progress is in memory and resets when the app restarts.
-- The sound icon is visual only; text-to-speech and speech recognition are not connected.
-- There is no real AI tutor/backend, user account, cloud sync, offline download manager, or subscription purchase yet.
-- Premium is a preview only; no payment is collected.
-- Before publishing, implement persistent storage, full translations/RTL QA, secure backend, privacy policy, age-appropriate design, accessibility and store-specific billing.
+## Important: Android project setup
+This source archive currently contains `lib/`, `pubspec.yaml`, and this README. It does not contain generated Android/iOS platform folders yet.
 
-## Recommended next engineering milestones
-1. Persist progress and selected language locally.
-2. Build lesson content packs for each supported language.
-3. Add text-to-speech and speech practice.
-4. Add AI conversation through a secure backend (never embed secret API keys in the app).
-5. Add separate compliant billing flows for Google Play and Iranian app stores.
-6. Test on real Android devices and prepare signed release builds.
+On a computer with Flutter installed, open a terminal in this folder and run:
+
+```bash
+flutter create . --platforms=android
+flutter pub get
+```
+
+Then open `android/app/src/main/AndroidManifest.xml` and add this permission directly under the `<manifest ...>` opening tag, before `<application>`:
+
+```xml
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+Build the APK with:
+
+```bash
+flutter build apk --release
+```
+
+The APK will be created at `build/app/outputs/flutter-apk/app-release.apk`.
+
+## Notes
+- The alarm code uses `flutter_local_notifications`, `flutter_timezone`, and `timezone`.
+- First-time notification permission must be allowed on Android 13 and newer.
+- The source has not been built or device-tested in this environment. Run `flutter pub get` and `flutter build apk` to validate it on your Flutter/Android SDK setup.
+- AI tutoring and paid subscriptions remain mock/demo features; they are not real connected services.
